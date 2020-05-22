@@ -7,6 +7,7 @@ namespace mayday
     {
         namespace sockets
         {
+            void setNonBlockAndCloseOnExec( int sockfd );
             int createNonblockingOrDie();
 
             const struct sockaddr* sockaddr_cast( const struct sockaddr_in* addr );

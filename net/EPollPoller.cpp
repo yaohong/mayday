@@ -150,7 +150,7 @@ namespace mayday
             event.data.ptr = channel;
             int fd = channel->fd();
 #ifndef NDEBUG
-            MDLog("epoll_ctl op:%s, fd=%d, event = %d,  {%s}.", operationToString( operation ), fd, channel->events(), channel->eventsToString().c_str());
+            //MDLog("epoll_ctl op:%s, fd=%d, event = %d,  {%s}.", operationToString( operation ), fd, channel->events(), channel->eventsToString().c_str());
 #endif
 
             if (::epoll_ctl( epollfd_, operation, fd, &event ) < 0)

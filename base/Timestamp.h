@@ -30,11 +30,12 @@ namespace mayday
 
         bool valid() const { return microSecondsSinceEpoch_ > 0; }
 
+        //当前微秒
         int64_t microSecondsSinceEpoch() const { return microSecondsSinceEpoch_; }
-        time_t secondsSinceEpoch() const
-        {
-            return static_cast<time_t>(microSecondsSinceEpoch_ / kMicroSecondsPerSecond);
-        }
+        //当前毫秒
+        int64_t milliSecondsSinceEpoch() const { return static_cast<int64_t>(microSecondsSinceEpoch_ / (kMicroSecondsPerSecond / 1000));  }
+        //当前秒
+        int64_t secondsSinceEpoch() const {return static_cast<int64_t>(microSecondsSinceEpoch_ / kMicroSecondsPerSecond);}
         static Timestamp now();
 
         //创建一个空时间对象
@@ -76,6 +77,13 @@ namespace mayday
     {
         int64_t diff = high.microSecondsSinceEpoch() - low.microSecondsSinceEpoch();
         return static_cast<double>(diff) / Timestamp::kMicroSecondsPerSecond;
+    }
+
+    //获取2个时间相差的毫秒数
+    inline double timeMSDifference( Timestamp high, Timestamp low )
+    {
+        int64_t diff = high.microSecondsSinceEpoch() - low.microSecondsSinceEpoch();
+        return static_cast<double>(diff) / (Timestamp::kMicroSecondsPerSecond / 1000);
     }
 
     inline Timestamp addTime( Timestamp timestamp, double seconds )

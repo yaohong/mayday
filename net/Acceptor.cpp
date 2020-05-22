@@ -35,6 +35,7 @@ namespace mayday
             int connfd = acceptSocket_.accept( &peerAddr );
             if (connfd >= 0)
             {
+                sockets::setNonBlockAndCloseOnExec( connfd );
                 MDLog( "peerIp:%s, peerPort:%s", peerAddr.toIp( ).c_str(), peerAddr.toIpPort().c_str());
                 if (newConnectionCallback_)
                 {

@@ -47,8 +47,10 @@ namespace mayday
 			const MessageCallback &messageCallback,							//收消息的回调函数
 			const WriteCompleteCallback &writeCompleteCallback,				//可以写调稀的回调函数
 			int32  timeoutSecond,                                               //连接的超时时间
-            int32 recvBufferSize,                                            //接收缓存大小
-            int32 sendBufferSize                                           //发送缓存大小
+            int32 recvBufferSize,                                            //系统接收缓存大小
+            int32 sendBufferSize,                                           //系统发送缓存大小
+			int32 cacheRecvBuferSize,										//Buffer的接收缓存大小
+			int32 cacheSendBufferSize										//Buffer的发送缓存大小
 			)
 		{
 
@@ -59,9 +61,9 @@ namespace mayday
             sprintf_s( buf, sizeof buf, "connector#%d", nextConnectorId_++ );
 #endif
             std::string connectorName =  buf;
-            MDLog( "TcpClient connector[%s] to[%s]", connectorName.c_str(), serverAddr.toIpPort().c_str() );
+//            MDLog( "TcpClient connector[%s] to[%s]", connectorName.c_str(), serverAddr.toIpPort().c_str() );
             ConnectorPtr connector( new Connector( loop_, connectorName, serverAddr, timeoutSecond ) );
-            std::unique_ptr<ConnectorContext> connContext( new ConnectorContext( name, connector, connectFailedCallback, connectSuccessCallback, connectionCallback, messageCallback, writeCompleteCallback, recvBufferSize, sendBufferSize ) );
+			std::unique_ptr<ConnectorContext> connContext(new ConnectorContext(name, connector, connectFailedCallback, connectSuccessCallback, connectionCallback, messageCallback, writeCompleteCallback, recvBufferSize, sendBufferSize, cacheRecvBuferSize, cacheSendBufferSize));
             connectors_[connectorName] = std::move( connContext );
             connector->setConnectCompleteCallback( std::bind( &TcpClient::connectComplete, this, std::placeholders::_1, std::placeholders::_2 ) );
 
@@ -79,8 +81,10 @@ namespace mayday
             const WriteCompleteCallback &writeCompleteCallback,				//可以写调稀的回调函数
             int timeoutSecond,
             int delaySecond,
-            int32 recvBufferSize,
-            int32 sendBufferSize
+            int32 recvBufferSize,											//系统接收缓存大小
+            int32 sendBufferSize,											//系统发送缓存大小
+			int32 cacheRecvBuferSize,										//Buffer的接收缓存大小
+			int32 cacheSendBufferSize										//Buffer的发送缓存大小
             )
         {
             auto cb = std::bind(
@@ -95,14 +99,16 @@ namespace mayday
                 writeCompleteCallback, 
                 timeoutSecond,
                 recvBufferSize, 
-                sendBufferSize );
-            loop_->addDelayTask( cb, delaySecond );
+                sendBufferSize,
+				cacheRecvBuferSize,
+				cacheSendBufferSize);
+            loop_->runAfter( cb, delaySecond * 1000 );
         }
 
         void TcpClient::connectComplete( const ConnectorPtr& connector, int sockfd )
         {
             loop_->assertInLoopThread();
-            MDLog( "TcpClient connectComplete[%s].", connector->name().c_str() );
+            //MDLog( "TcpClient connectComplete[%s].", connector->name().c_str() );
             ConnectorMap::iterator p_it = connectors_.find( connector->name() );
             assert( p_it != connectors_.end() );
             std::unique_ptr<ConnectorContext> context = std::move(p_it->second);
@@ -120,10 +126,10 @@ namespace mayday
                 STRING_FMT( buf, sizeof buf, "-connection#%d", nextConnectionId_++ );
                 InetAddress peerAddr( sockets::getPeerAddr( sockfd ) );
                 std::string connName = context->name_ + buf;
-                MDLog( "TcpClient, new Connection[%s] to[%s]", connName.c_str(), peerAddr.toIpPort().c_str() );
+                //MDLog( "TcpClient, new Connection[%s] to[%s]", connName.c_str(), peerAddr.toIpPort().c_str() );
                 InetAddress localAddr( sockets::getLocalAddr( sockfd ) );
                 //单线程环境直接使用tcpServer所在的loop
-                TcpConnectionPtr conn( new TcpConnection( loop_, connName, sockfd, localAddr, peerAddr, context->recvBufferSize_, context->sendBufferSize_ ) );
+                TcpConnectionPtr conn( new TcpConnection( loop_, connName, sockfd, localAddr, peerAddr, context->recvBufferSize_, context->sendBufferSize_, context->cacheRecvBufferSize_, context->cacheSendBufferSize_ ) );
                 connections_[connName] = conn;
                 conn->setConnectionCallback( context->connectionCallback_ );
                 conn->setMessageCallback( context->messageCallback_ );
@@ -142,7 +148,7 @@ namespace mayday
         void TcpClient::removeConnection( const TcpConnectionPtr& conn )
         {
             loop_->assertInLoopThread();
-            MDLog( "TcpClient removeConnection[%s].", conn->name().c_str() );
+            //MDLog( "TcpClient removeConnection[%s].", conn->name().c_str() );
             size_t n = connections_.erase( conn->name() );
             assert( n == 1 );
             loop_->queueInLoop( std::bind( &TcpConnection::connectDestroyed, conn ) );

@@ -33,8 +33,8 @@ namespace mayday
         int64_t microseconds = microSecondsSinceEpoch_ % kMicroSecondsPerSecond;
 
 
-        STRING_FMT( buf, sizeof(buf)-1, "%" PRId64 ".%06" PRId64 "", seconds, microseconds );
-
+        //STRING_FMT( buf, sizeof(buf)-1, "%"PRId64".%06"PRId64 "", seconds, microseconds );
+        STRING_FMT(buf, sizeof(buf)-1, "%lld.%06lld", (int64)seconds, (int64)microseconds);
         return buf;
     }
 
@@ -69,12 +69,13 @@ namespace mayday
         }
         return buf;
     }
-
+    static int64 testTime = 1;
     Timestamp Timestamp::now()
     {
         struct timeval tv;
         gettimeofday( &tv, NULL );
         int64_t seconds = tv.tv_sec;
         return Timestamp( seconds * kMicroSecondsPerSecond + tv.tv_usec );
+        //return Timestamp( (testTime++) * kMicroSecondsPerSecond );
     }
 }

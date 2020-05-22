@@ -17,7 +17,9 @@ namespace mayday
             const InetAddress &localAddr,
             const InetAddress &peerAddr,
             int32 recvSize,
-            int32 sendSize
+            int32 sendSize,
+			int32 cacheRecvSize,
+			int32 cacheSendSize
             )
             : loop_( loop )
             , name_( name )
@@ -28,23 +30,34 @@ namespace mayday
             , peerAddr_( peerAddr )
             , context_( NULL )
             , destroyed_( false )
-            , recvBuffer_( recvSize )
-            , sendBuffer_( sendSize )
+            , isDelaySend_(false)
+            , sendDelayTime_(0)
+            , maxSendCacheSize_(0)
+			, recvBuffer_(cacheRecvSize)
+			, sendBuffer_(cacheSendSize)
+
+            , isStartDelayTask_(false)
+            , curDelayTaskId_(0)
+            , delayTaskIdAlloc_(1)
         {
+            socket_->setTcpNoDelay( true );
             channel_->setReadCallback( std::bind( &TcpConnection::handleRead, this ) );
             channel_->setWriteCallback( std::bind( &TcpConnection::handleWrite, this ) );
             channel_->setCloseCallback( std::bind( &TcpConnection::handleClose, this ) );
             channel_->setErrorCallback( std::bind( &TcpConnection::handleError, this ) );
+
+			socket_->setRecvBuffSize(recvSize);
+			socket_->setSendBuffSize(sendSize);
         }
 
         TcpConnection::~TcpConnection()
         {
-            MDLog( "tcpConnection free." );
+            //MDLog( "tcpConnection free." );
         }
 
         void TcpConnection::forceClose()
         {
-            MDLog( "tcpConnection:%s forceClose state_:%d.", name_.c_str(), state_ );
+            //MDLog( "fd:%d, tcpConnection:%s forceClose state_:%d.", channel_->fd(), name_.c_str(), state_ );
             if (state_ == kConnected)
             {
                 setState( kDisconnecting );
@@ -56,7 +69,7 @@ namespace mayday
         void TcpConnection::forceCloseInLoop()
         {
             loop_->assertInLoopThread();
-            MDLog( "tcpConnection:%s forceCloseInLoop state_:%d.", name_.c_str(), state_ );
+            //MDLog( "fd:%d tcpConnection:%s forceCloseInLoop state_:%d.", channel_->fd(), name_.c_str(), state_ );
             if (state_ == kDisconnecting)
             {
                 handleClose();
@@ -69,6 +82,7 @@ namespace mayday
             MDAssert( state_ == kConnecting );
             setState( kConnected );
 
+            //MDLog( "fd:%d connectEstablished.", channel_->fd());
             channel_->enableReading();
             assert( connectionCallback_ );
             connectionCallback_( shared_from_this() );
@@ -77,7 +91,7 @@ namespace mayday
         void TcpConnection::connectDestroyed()
         {
             loop_->assertInLoopThread();
-            MDLog( "tcpConnection:%s connectDestroyed state_:%d.", name_.c_str(), state_ );
+            //MDLog( "fd:%d tcpConnection:%s connectDestroyed state_:%d.", channel_->fd(), name_.c_str(), state_ );
             destroyed_ = true;
             if (state_ == kConnected)
             {
@@ -94,6 +108,12 @@ namespace mayday
             loop_->assertInLoopThread();
             if (state_ == kConnected)
             {
+                if (isDelaySend_)
+                {
+                    //延时发送模式
+                    delaySend(data, len);
+                    return;
+                }
                 //当前没有监听可写事件(send没有失败过)并且发送缓存为0
                 int32 nwrote = 0;
                 int32 remaining = len;
@@ -142,9 +162,13 @@ namespace mayday
                             //发送缓存满了
                             //是否应该移动缓存?
                             MDWarning( "TcpConnection::send move before writableBytes=%d, remaining=%d, readbleBytes=%d.", writableBytes, remaining, sendBuffer_.readableBytes() );
-                            sendBuffer_.move();
-                            writableBytes = sendBuffer_.writableBytes();
-                            MDWarning( "TcpConnection::send move before writableBytes=%d, remaining=%d, readbleBytes=%d.", writableBytes, remaining, sendBuffer_.readableBytes() );
+                            writableBytes = sendBuffer_.moveAfterWritableBytes();
+                            if (writableBytes >= remaining)
+                            {
+                                sendBuffer_.move();
+                                writableBytes = sendBuffer_.writableBytes();
+                                MDWarning( "TcpConnection::send move before writableBytes=%d, remaining=%d, readbleBytes=%d.", writableBytes, remaining, sendBuffer_.readableBytes() );
+                            }
                         }
 
                         if (writableBytes < remaining)
@@ -165,6 +189,85 @@ namespace mayday
             }
         }
 
+        void TcpConnection::delaySend( const void *data, int len )
+        {
+            int32 writableBytes = sendBuffer_.writableBytes();
+            if (writableBytes < len)
+            {
+                writableBytes = sendBuffer_.moveAfterWritableBytes();
+                if (writableBytes >= len)
+                {
+                    //MDLog( "fd:%d, TcpConnection::delaySend move success.", channel_->fd());
+                    sendBuffer_.move();
+                }
+                else 
+                {
+                    //缓冲区不够了
+                    MDError( "fd:%d TcpConnection::delaySend writableBytes=%d, remaining=%d, readableBytes=%d.", channel_->fd(), writableBytes, len, sendBuffer_.readableBytes() );
+                    forceClose();
+                    return;
+                }
+            }
+            //将发送的数据追加到缓冲区
+            sendBuffer_.append( (const char *)data, len );
+            if (!isStartDelayTask_)
+            {
+                isStartDelayTask_ = true;
+                //MDLog( "fd:%d startDelayTask.", channel_->fd());
+                loop_->runAfter( std::bind( &TcpConnection::_handDelaySend, std::weak_ptr<TcpConnection>( shared_from_this() ) ), sendDelayTime_ );
+            }
+        }
+
+        void TcpConnection::_handDelaySend(std::weak_ptr<TcpConnection> ptr)
+        {
+            std::shared_ptr<TcpConnection> sptr = ptr.lock();
+            if (sptr)
+            {
+                sptr->handDelaySend();
+            }
+        }
+
+        void TcpConnection::handDelaySend()
+        {
+            //发送数据           
+            loop_->assertInLoopThread();
+            //MDLog( "fd:%d handDelaySend.", channel_->fd());
+            if (state_ == kConnected)
+            {
+                if (channel_->isWriting())
+                {
+                    //监听了写事件，什么都不做
+                }
+                else
+                {
+                    int32 n = ::send( channel_->fd(), sendBuffer_.peek(), sendBuffer_.readableBytes(), 0 );
+                    if (n > 0)
+                    {
+                        sendBuffer_.retrieve( n );
+                        if (sendBuffer_.readableBytes() == 0)
+                        {
+                            //发送完了
+                            if (writeCompleteCallback_)
+                            {
+                                loop_->queueInLoop( std::bind( writeCompleteCallback_, shared_from_this() ) );
+                            }
+                            isStartDelayTask_ = false;
+                        }
+                        else 
+                        {
+                            //没有发送完
+                            //MDLog( "fd:%d handDelaySend, enableWriting.", channel_->fd() );
+                            channel_->enableWriting();
+                        }
+                    }
+                    else
+                    {
+                        MDWarning( "fd:%d TcpConnection::handDelaySend send failed, code=%d", channel_->fd(), NETWORK_ERROR );
+                        forceClose();
+                    }
+                }
+            }
+        }
 
 
         void TcpConnection::handleRead()
@@ -199,7 +302,7 @@ namespace mayday
         void TcpConnection::handleWrite()
         {
             loop_->assertInLoopThread();
-            MDLog( "handleWrite." );
+            MDLog( "fd:%d handleWrite.", channel_->fd());
             if (state_ == kConnected)
             {
                 if (channel_->isWriting())
@@ -210,6 +313,11 @@ namespace mayday
                         sendBuffer_.retrieve( n );
                         if (sendBuffer_.readableBytes() == 0)
                         {
+                            if (isDelaySend_)
+                            {
+                                //当前是延时发送模式
+                                isStartDelayTask_ = false;
+                            }
                             channel_->disableWriting();
                             if (writeCompleteCallback_)
                             {
@@ -219,7 +327,7 @@ namespace mayday
                     }
                     else
                     {
-                        MDWarning("TcpConnection::handleWrite send failed, code=%d", NETWORK_ERROR);
+                        MDWarning( "fd:%d TcpConnection::handleWrite send failed, code=%d", channel_->fd(), NETWORK_ERROR );
                         forceClose();
                     }
                 }
@@ -233,7 +341,7 @@ namespace mayday
         void TcpConnection::handleClose()
         {
             loop_->assertInLoopThread();
-            MDLog( "tcpConnection:%s handleClose state_:%d, revent:%d  %s.", name_.c_str(), state_, channel_->revents_, channel_->reventsToString().c_str() );
+            //MDLog( "fd:%d tcpConnection:%s handleClose state_:%d, revent:%d  %s.", channel_->fd(), name_.c_str(), state_, channel_->revents_, channel_->reventsToString().c_str() );
             assert( state_ == kConnected || state_ == kDisconnecting );
             //assert(state_ == kConnected);
             setState( kDisconnected );
@@ -255,9 +363,9 @@ namespace mayday
         void TcpConnection::handleError()
         {
             loop_->assertInLoopThread();
-            MDLog( "tcpConnection:%s handleError state_:%d, revent:%d.", name_.c_str(), state_, channel_->revents_ );
+            //MDLog( "fd:%d tcpConnection:%s handleError state_:%d, revent:%d.", channel_->fd(), name_.c_str(), state_, channel_->revents_ );
             int err = sockets::getSocketError( channel_->fd() );
-            MDLog( "tcpConnection:%s handleError state_:%d, errorCode:%d.", name_.c_str(), state_, err );
+            //MDLog( "fd:%d tcpConnection:%s handleError state_:%d, errorCode:%d.", channel_->fd(), name_.c_str(), state_, err );
             if (state_ == kConnected)
             {
                 handleClose();

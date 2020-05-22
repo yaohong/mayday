@@ -40,7 +40,7 @@ namespace mayday
 #ifdef WIN32 
             ::WaitForSingleObject( sem_, INFINITE );
 #else 
-            sem_wait( &sem_ );
+            while (-1 == sem_wait( &sem_ ) && errno == EINTR);
 #endif
         }
     private:

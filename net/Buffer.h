@@ -29,6 +29,12 @@ namespace mayday
                 return buffer_.size() - writerIndex_;
             }
 
+            //移动之后可写入的字节数
+            size_t moveAfterWritableBytes() const
+            {
+                return writableBytes() + (readerIndex_ - kCheapPrepend);
+            }
+
             //当前的读取偏移
             size_t prependableBytes() const
             {
@@ -97,10 +103,11 @@ namespace mayday
 
             int readFd( int fd );
 
-            void append( const char*  data, int32 len )
+            void append( const char*  data, size_t len )
             {
-                hasWritten( len );
+                assert( len <= writableBytes() );
                 std::copy( data, data + len, beginWrite() );
+                hasWritten( len );
             }
         private:
             
@@ -126,7 +133,10 @@ namespace mayday
             }
             void move()
             {
-                assert( kCheapPrepend < readerIndex_ );
+                if (kCheapPrepend == readerIndex_)
+                {
+                    return;
+                }
                 size_t readable = readableBytes( );
                 std::copy( 
                     begin() + readerIndex_,

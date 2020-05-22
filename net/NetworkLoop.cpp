@@ -8,7 +8,8 @@
 
 namespace
 {
-    const int kPollTimeMs = 10;
+    const int kPollTimeMs = 5;
+    const int kMSSize = 10;         //以10毫秒为粒度
 #ifndef WIN32 
     int createEventfd()
     {
@@ -70,20 +71,17 @@ namespace mayday
             return NULL;
         }
 
-        NetworkLoop::NetworkLoop( int maxTimeSlot )
+        NetworkLoop::NetworkLoop( int maxSTimeSlot, int maxMSTimeSlot )
             : looping_(false)
             , quit_( false )
             , eventHandling_(false)
             , callingPendingFunctors_(false)
             , threadId_(CurrentThread::tid())
             , poller_( Poller::newDefaultPoller( this ) )
+            , timerManager_(new TimerManager())
             , wakeupFd_( createEventfd ())
             , wakeupChannel_( new Channel( this, wakeupFd_ ) )
             , currentActiveChannel_( NULL )
-
-            , maxTimeSlot_( maxTimeSlot + 1 )
-            , timeTasks_( maxTimeSlot + 1)
-            , curTick_( 0 )
         {
 #ifdef WIN32
             //需要获取wakeupfd的本地地址
@@ -135,11 +133,16 @@ namespace mayday
             
         }
 
-        void NetworkLoop::addDelayTask( const Functor &cb, int delayTime )
+        uint64 NetworkLoop::runAfter( const Functor &cb, uint32 delayTime )
         {
-            assert( delayTime > 0 && delayTime < maxTimeSlot_ );
-            timeTasks_[(curTick_ + delayTime) % maxTimeSlot_].push_back( cb );
+            return timerManager_->runAfter( delayTime, cb );
         }
+
+        uint64 NetworkLoop::runEvery( const Functor  &cb, uint32 milseconds )
+        {
+            return timerManager_->runEvery( milseconds , cb);
+        }
+
 
         void NetworkLoop::loop()
         {
@@ -161,8 +164,8 @@ namespace mayday
 
                 currentActiveChannel_ = NULL;
                 eventHandling_ = false;
+                timerManager_->detectTimer( pollReturnTime );
                 doPendingFunctors();
-                doTimeTaskFunctors( pollReturnTime );
                 if (timeoutFunctor_)
                 {
                     timeoutFunctor_();
@@ -267,27 +270,6 @@ namespace mayday
                 functors[i]();
             }
             callingPendingFunctors_ = false;
-        }
-
-        void NetworkLoop::doTimeTaskFunctors( Timestamp& pollReturnTime )
-        {
-            if (timeDifference( pollReturnTime, prevPollReturnTime_ ) >= 1.0)
-            {
-                std::list<Functor> functors;
-                std::list<Functor> &curTaskList = timeTasks_[curTick_];
-                functors.swap( curTaskList );
-
-                std::list<Functor>::iterator p_it = functors.begin();
-                for (; p_it != functors.end(); ++p_it)
-                {
-                    (*p_it)();
-                }
-
-                curTick_ = (curTick_ + 1) % maxTimeSlot_;
-                prevPollReturnTime_.swap( pollReturnTime );
-            }
-
-            
         }
     }
 }

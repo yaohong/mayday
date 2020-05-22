@@ -4,6 +4,7 @@
 #include "../base/Define.h"
 #include "../base/Timestamp.h"
 #include "../base/Mutex.h"
+#include "../base/TimerManager.h"
 namespace mayday
 {
     namespace net
@@ -13,7 +14,7 @@ namespace mayday
         class NetworkLoop
         {
         public:
-            NetworkLoop(int maxTimeSlot = 1024);
+            NetworkLoop(int maxSTimeSlot = 1000, int maxMSTimeSlot = 100);
             ~NetworkLoop();
 
             typedef std::function<void( )> Functor;
@@ -40,9 +41,9 @@ namespace mayday
             void queueInLoop( const Functor& cb );
 
 
+            uint64 runAfter( const Functor &cb, uint32 delayTime );
+            uint64 runEvery( const Functor  &cb, uint32 milseconds);
 
-
-            void addDelayTask( const Functor &cb, int delayTime );
             void setTimeoutCallback( const Functor& cb ) {
                 timeoutFunctor_ = cb;
             };
@@ -53,7 +54,7 @@ namespace mayday
             //处理wakeupFd_的事件
             void handleRead();
             void doPendingFunctors( );
-            void doTimeTaskFunctors(Timestamp& pollReturnTime );
+            void doTimeTaskFunctors( Timestamp& pollReturnTime );
         private:
             bool looping_;
             bool quit_;
@@ -61,8 +62,9 @@ namespace mayday
             bool callingPendingFunctors_;
             const pid_t threadId_;
             Timestamp prevPollReturnTime_;
-            std::unique_ptr<Poller> poller_;
 
+            std::unique_ptr<Poller> poller_;
+            std::unique_ptr<TimerManager> timerManager_;
             int wakeupFd_;
 #ifdef WIN32 
             int wakeSendFd_;
@@ -76,13 +78,6 @@ namespace mayday
 
             MutexLock mutex_;
             std::vector<Functor> pendingFunctors_;
-
-
-
-            std::vector<std::list<Functor> > timeTasks_;
-            int curTick_;
-            int maxTimeSlot_;
-
 
             Functor timeoutFunctor_;
             

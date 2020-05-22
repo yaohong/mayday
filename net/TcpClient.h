@@ -23,6 +23,8 @@ namespace mayday
 			WriteCompleteCallback writeCompleteCallback_;
             int32 recvBufferSize_;
             int32 sendBufferSize_;
+			int32 cacheRecvBufferSize_;
+			int32 cacheSendBufferSize_;
             ConnectorContext(
                 const std::string &name,
                 const ConnectorPtr& connectorPtr,
@@ -32,7 +34,9 @@ namespace mayday
                 const MessageCallback messageCallback,
                 const WriteCompleteCallback writeCompleteCallback,
                 int32 recvBufferSize,
-                int32 sendBufferSize
+                int32 sendBufferSize,
+				int32 cacheRecvBufferSize,
+				int32 cacheSendBufferSize
                 ) 
                 : name_( name )
                 , connectorPtr_( connectorPtr )
@@ -43,6 +47,8 @@ namespace mayday
                 , writeCompleteCallback_( writeCompleteCallback )
                 , recvBufferSize_(recvBufferSize)
                 , sendBufferSize_( sendBufferSize )
+				, cacheRecvBufferSize_(cacheRecvBufferSize)
+				, cacheSendBufferSize_(cacheSendBufferSize)
             {
                 
             }
@@ -70,7 +76,9 @@ namespace mayday
 				const WriteCompleteCallback &writeCompleteCallback,				//可以写的回调函数
 				int timeoutSecond,
                 int32 recvBufferSize,                                            
-                int32 sendBufferSize                                           
+                int32 sendBufferSize,
+				int32 cacheRecvBuferSize,
+				int32 cacheSendBufferSize
 				);
 
             void delayConnect(
@@ -85,7 +93,9 @@ namespace mayday
                 int timeoutSecond,
                 int delaySecond,
                 int32 recvBufferSize,
-                int32 sendBufferSize
+                int32 sendBufferSize,
+				int32 cacheRecvBuferSize,
+				int32 cacheSendBufferSize
                 );
 		private:
             void connectComplete( const ConnectorPtr& connector, int sockfd );

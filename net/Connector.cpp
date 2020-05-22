@@ -22,7 +22,7 @@ namespace mayday
 
 		Connector::~Connector()
 		{
-            MDLog( "Connectord[%s] free.", name_.c_str() );
+//            MDLog( "Connectord[%s] free.", name_.c_str() );
 			assert(!channel_);
 		}
 
@@ -94,7 +94,7 @@ namespace mayday
 			channel_->enableWriting();
 
 			//开启一个链接超时检查任务
-            loop_->addDelayTask( std::bind( &Connector::_connectTimeoutCheck, std::weak_ptr<Connector>(shared_from_this() )), timeoutSecond_ );
+            loop_->runAfter( std::bind( &Connector::_connectTimeoutCheck, std::weak_ptr<Connector>( shared_from_this() ) ), timeoutSecond_ * 1000 );
 		}
 
 		int Connector::removeAndResetChannel()
@@ -115,7 +115,7 @@ namespace mayday
 		void Connector::handleWrite()
 		{
             loop_->assertInLoopThread();
-			MDLog("Connector::handleWrite:%d.", state_);
+			//MDLog("Connector::handleWrite:%d.", state_);
 
 			if (state_ == kConnecting)
 			{
@@ -142,13 +142,13 @@ namespace mayday
 		void Connector::handleError()
 		{
             loop_->assertInLoopThread();
-			MDError("Connector::handleError state=%d.", state_);
+			//MDError("Connector::handleError state=%d.", state_);
 			if (state_ == kConnecting)
 			{
 				setState(kDisconnected);
 				int sockfd = removeAndResetChannel();
 				int err = sockets::getSocketError(sockfd);
-				MDError("SO_ERROR = %d.", err);
+				//MDError("SO_ERROR = %d.", err);
 				connectFailed(sockfd);
 			}
 		}

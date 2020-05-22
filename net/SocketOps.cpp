@@ -4,45 +4,43 @@
 #include "Endian.h"
 using namespace mayday;
 using namespace mayday::net;
-namespace
+
+void sockets::setNonBlockAndCloseOnExec( int sockfd )
 {
-    void setNonBlockAndCloseOnExec( int sockfd )
-    {
 #ifndef WIN32
-        // non-block
-        int flags = ::fcntl( sockfd, F_GETFL, 0 );
-        flags |= O_NONBLOCK;
-        int ret = ::fcntl(sockfd, F_SETFL, flags);
-        // FIXME check
+    // non-block
+    int flags = ::fcntl( sockfd, F_GETFL, 0 );
+    flags |= O_NONBLOCK;
+    int ret = ::fcntl(sockfd, F_SETFL, flags);
+    // FIXME check
 
-        // close-on-exec
-        flags = ::fcntl( sockfd, F_GETFD, 0 );
-        flags |= FD_CLOEXEC;
-        ret = ::fcntl( sockfd, F_SETFD, flags );
-        // FIXME check
+    // close-on-exec
+    flags = ::fcntl( sockfd, F_GETFD, 0 );
+    flags |= FD_CLOEXEC;
+    ret = ::fcntl( sockfd, F_SETFD, flags );
+    // FIXME check
 
-        (void)ret;
+    (void)ret;
 #else
-        int ul = 1;           //1·Ç×èÈû:0×èÈû
-        if (SOCKET_ERROR == ioctlsocket( sockfd, FIONBIO, (unsigned long *)&ul ))
-        {
-            MDAssert( false );
-        }
-#endif
+    int ul = 1;           //1·Ç×èÈû:0×èÈû
+    if (SOCKET_ERROR == ioctlsocket( sockfd, FIONBIO, (unsigned long *)&ul ))
+    {
+        MDAssert( false );
     }
+#endif
 }
+
 
 int sockets::createNonblockingOrDie()
 {
 #ifndef WIN32 
     int sockfd = ::socket( PF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0 );
     MDAssert( !(sockfd < 0) );
-    setNonBlockAndCloseOnExec(sockfd);
     return sockfd;
 #else
     int sockfd = socket( PF_INET, SOCK_STREAM, 0 );
     MDAssert( !(sockfd < 0) );
-    setNonBlockAndCloseOnExec( sockfd );
+    sockets::setNonBlockAndCloseOnExec( sockfd );
     return sockfd;
 #endif
 }
@@ -90,7 +88,7 @@ int  sockets::connect( int sockfd, const struct sockaddr* addr )
 void sockets::bind( int sockfd, const struct sockaddr* addr )
 {
     int ret = ::bind( sockfd, addr, static_cast<socklen_t>(sizeof(struct sockaddr_in)) );
-    MDAssert(!(ret < 0));
+    MDAssert( !(ret < 0) );
 }
 void sockets::listen( int sockfd )
 {
